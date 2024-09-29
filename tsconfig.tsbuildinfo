@@ -1,0 +1,1 @@
+{"root":["./src/vite-env.d.ts","./src/background/background.ts","./src/content/content.ts","./src/popup/main.tsx","./src/popup/components/app.tsx","./src/popup/components/individuallecturecolorsetter.tsx","./src/popup/components/lectureslist.tsx","./src/popup/components/toggleonoffbutton.tsx","./vite.config.ts"],"version":"5.6.2"}

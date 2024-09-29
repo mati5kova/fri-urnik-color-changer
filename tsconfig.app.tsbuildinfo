@@ -1,0 +1,1 @@
+{"root":["./src/vite-env.d.ts","./src/background/background.ts","./src/popup/main.tsx","./src/popup/components/app.tsx"],"errors":true,"version":"5.6.2"}
