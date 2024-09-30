@@ -5,12 +5,12 @@ let listOfClassesAndProperties: listOfTargetClassesAndPropertiesInterface[] = []
 
 // inicializacija badga in storaga
 chrome.runtime.onInstalled.addListener(() => {
-	chrome.storage.local.set({ isEnabled: false }, () => {
+	chrome.storage.local.set({ isEnabled: false, friClassColors: {} }, () => {
 		chrome.action.setBadgeText({ text: "OFF" });
 	});
 });
 
-// funkcija za updatad bade glede na stanje
+// funkcija za updatad badge glede na stanje
 async function updateBadge(tabId: number, isEnabled: boolean) {
 	const badgeText = isEnabled ? "ON" : "OFF";
 	await chrome.action.setBadgeText({
@@ -20,78 +20,95 @@ async function updateBadge(tabId: number, isEnabled: boolean) {
 }
 
 //posluša za message iz pupupa in content.ts
-chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	if (request.action === "toggle") {
 		const newState = request.isEnabled;
-		chrome.storage.local.set({ isEnabled: newState }, async () => {
+		chrome.storage.local.set({ isEnabled: newState }, () => {
 			// Query all tabs that match the urnikURL
-			const tabs = await chrome.tabs.query({ url: urnikURL + "*" });
-			for (const tab of tabs) {
-				if (tab.id && typeof tab.url === "string") {
-					await updateBadge(tab.id, newState);
-					await applyCSS(tab.id, newState);
-				}
-			}
-			sendResponse({ success: true });
+			chrome.tabs.query({ url: `${urnikURL}*` }, async (tabs) => {
+				const updatePromises = tabs.map(async (tab) => {
+					if (tab.id && typeof tab.url === "string") {
+						await updateBadge(tab.id, newState);
+						if (newState) {
+							// If enabling, apply all stored colors
+							chrome.storage.local.get({ friClassColors: {} }, async (result) => {
+								const friClassColors = result.friClassColors as { [lectureName: string]: string };
+								await applyStoredColorsToTab(tab.id!, friClassColors);
+							});
+						}
+					}
+				});
+
+				Promise.all(updatePromises)
+					.then(() => {
+						sendResponse({ success: true });
+					})
+					.catch((error) => {
+						console.error("Error updating badges and applying colors:", JSON.stringify(error));
+						sendResponse({ success: false, error: error.message });
+					});
+			});
 		});
-		// return true da pokažeš async response
+		// Return true to indicate that the response is asynchronous
 		return true;
 	} else if (request.action === "sendListOfClassesAndProperties") {
-		listOfClassesAndProperties = request.listOfLectures;
+		listOfClassesAndProperties = request.listOfClasses;
 	} else if (request.action === "getListOfClassesAndProperties") {
 		sendResponse({ listOfClassesAndProperties: listOfClassesAndProperties });
 	} else if (request.action === "setColorOnClass") {
-		try {
-			const tabs = await chrome.tabs.query({ url: urnikURL + "*" });
+		const { friTargetClassName, newHexColor } = request;
 
-			// procesira vsak tab asinhrono
-			for (const tab of tabs) {
-				if (tab.id && typeof tab.url === "string") {
-					try {
-						const transformedColorToRgba = hexToRgba(request.newColor);
+		chrome.storage.local.get({ friClassColors: {} }, (result) => {
+			const friClassColors = result.friClassColors as { [key: string]: string };
+			friClassColors[friTargetClassName] = newHexColor;
 
-						await chrome.scripting.executeScript({
-							target: { tabId: tab.id },
-							func: (text, rgbaNewColor) => {
-								const elements = document.querySelectorAll("a.link-subject");
+			chrome.storage.local.set({ friClassColors }, () => {
+				chrome.tabs.query({ url: `${urnikURL}*` }, async (tabs) => {
+					const applyColorPromises = tabs.map((tab) => {
+						if (tab.id && typeof tab.url === "string") {
+							const transformedColorToRgba = hexToRgba(newHexColor);
+							return chrome.scripting.executeScript({
+								target: { tabId: tab.id },
+								func: applyColorToFriClass,
+								args: [friTargetClassName, transformedColorToRgba],
+							});
+						}
+						return Promise.resolve();
+					});
 
-								for (let i = 0; i < elements.length; i++) {
-									const element = elements[i];
-									if (element.textContent?.trim() === text) {
-										const ancestor =
-											element.parentElement?.parentElement?.parentElement?.parentElement;
-										if (ancestor) {
-											ancestor.style.backgroundColor = rgbaNewColor;
-										}
-									}
-								}
-							},
-							args: [request.text, transformedColorToRgba],
+					Promise.all(applyColorPromises)
+						.then(() => {
+							sendResponse({ success: true });
+						})
+						.catch((error) => {
+							console.error(`Failed to apply colors: ${JSON.stringify(error)}`);
+							sendResponse({ success: false, error: "Failed to set colors" });
 						});
-					} catch (error) {
-						console.error(`Failed to change color: ${error}`);
-					}
-				}
-			}
-		} catch (error) {
-			console.error("Error processing setColorOnLecture:", error);
-		}
+				});
+			});
+		});
+		// Return true to indicate that the response is asynchronous
+		return true;
 	}
-	// ostali messagi
+	// Handle other actions if necessary
 });
 
 // inicializacija badga glede na storage state ko se browser štarta
 chrome.runtime.onStartup.addListener(async () => {
-	chrome.storage.local.get({ isEnabled: false }, async (result) => {
+	chrome.storage.local.get({ isEnabled: false, friClassColors: {} }, async (result) => {
 		const isEnabled = result.isEnabled;
-		// query za vse sub url-je
-		const tabs = await chrome.tabs.query({ url: urnikURL + "*" });
-		tabs.forEach(async (tab) => {
+		// Query all tabs that match the urnikURL
+		const tabs = await chrome.tabs.query({ url: `${urnikURL}*` });
+		const applyColorPromises = tabs.map(async (tab) => {
 			if (tab.id && typeof tab.url === "string") {
 				await updateBadge(tab.id, isEnabled);
-				await applyCSS(tab.id, isEnabled);
+				if (isEnabled) {
+					const friClassColors = result.friClassColors as { [lectureName: string]: string };
+					await applyStoredColorsToTab(tab.id, friClassColors);
+				}
 			}
 		});
+		await Promise.all(applyColorPromises);
 	});
 });
 
@@ -99,17 +116,48 @@ chrome.runtime.onStartup.addListener(async () => {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 	if (changeInfo.status === "complete" && tab.url && tab.url.startsWith(urnikURL)) {
 		try {
-			const result = await chrome.storage.local.get({ isEnabled: false });
+			const result = await chrome.storage.local.get({ isEnabled: false, friClassColors: {} });
 			const isEnabled = result.isEnabled;
 			await updateBadge(tabId, isEnabled);
-			await applyCSS(tabId, isEnabled);
+
+			if (isEnabled) {
+				// Apply stored colors only if the extension is enabled
+				const friClassColors = result.friClassColors as { [key: string]: string };
+				await applyStoredColorsToTab(tabId, friClassColors);
+			}
 		} catch (error) {
-			console.error("Error handling tab update:", error);
+			console.error("Error handling tab update:", JSON.stringify(error));
 		}
 	}
 });
 
 // helper funkcije
+
+function applyColorToFriClass(friClassName: string, rgbaColor: string) {
+	const elements = document.querySelectorAll<HTMLElement>("a.link-subject");
+	elements.forEach((element) => {
+		if (element.textContent?.trim() === friClassName) {
+			const ancestor = element.closest<HTMLElement>(".grid-entry");
+			if (ancestor) {
+				ancestor.style.backgroundColor = rgbaColor;
+			}
+		}
+	});
+}
+
+// Function to apply all stored colors to a specific tab
+async function applyStoredColorsToTab(tabId: number, friClassColors: { [key: string]: string }) {
+	const applyColorPromises = Object.entries(friClassColors).map(([lectureName, color]) => {
+		const transformedColorToRgba = hexToRgba(color);
+		return chrome.scripting.executeScript({
+			target: { tabId: tabId },
+			func: applyColorToFriClass,
+			args: [lectureName, transformedColorToRgba],
+		});
+	});
+
+	return Promise.all(applyColorPromises);
+}
 
 function hexToRgba(hex: string) {
 	let a: string[] = [];
@@ -122,23 +170,4 @@ function hexToRgba(hex: string) {
 		return "rgba(" + [(b >> 16) & 255, (b >> 8) & 255, b & 255].join(",") + ", 0.7)";
 	}
 	return "rgba(255, 255, 255, 1)";
-}
-
-// funkcija za dodajanje/odstranjevanje css-ja
-async function applyCSS(tabId: number, isEnabled: boolean) {
-	try {
-		if (isEnabled) {
-			await chrome.scripting.insertCSS({
-				css: ".grid-entry { background-color: red !important; }",
-				target: { tabId: tabId },
-			});
-		} else {
-			await chrome.scripting.removeCSS({
-				css: ".grid-entry { background-color: red !important; }",
-				target: { tabId: tabId },
-			});
-		}
-	} catch (error) {
-		console.error(`Failed to apply/remove CSS on tab ${tabId}:`, error);
-	}
 }

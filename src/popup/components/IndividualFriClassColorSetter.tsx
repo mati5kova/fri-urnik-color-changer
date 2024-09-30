@@ -1,41 +1,65 @@
-import { useId, useState } from "react";
+// IndividualFriClassColorSetter.tsx
+import { useEffect, useId, useState } from "react";
 import { listOfTargetClassesAndPropertiesInterface } from "../../content/content";
 
 export default function IndividualFriClassColorSetter({
 	currentBgColor,
 	friClassName,
 }: listOfTargetClassesAndPropertiesInterface) {
-	const [localBgColor, setLocalBgColor] = useState(RGBAToHexA(currentBgColor, true));
+	const [localBgColor, setLocalBgColor] = useState<string>(currentBgColor);
 	const uniqueId = useId();
 
-	function RGBAToHexA(rgba: string, forceRemoveAlpha: boolean) {
-		return (
-			"#" +
-			rgba
-				.replace(/^rgba?\(|\s+|\)$/g, "")
-				.split(",")
-				.filter((string: string, index: number) => !forceRemoveAlpha || index !== 3)
-				.map((string: string) => parseFloat(string))
-				.map((number: number, index: number) => (index === 3 ? Math.round(number * 255) : number))
-				.map((number: number) => number.toString(16))
-				.map((string: string) => (string.length === 1 ? "0" + string : string))
-				.join("")
-		);
-	}
+	useEffect(() => {
+		console.log(currentBgColor, localBgColor, RGBAToHexA(currentBgColor), RGBAToHexA(localBgColor));
+	}, []);
 
-	async function changeColor(e: React.ChangeEvent<HTMLInputElement>) {
-		setLocalBgColor(e.target.value);
+	useEffect(() => {
+		setLocalBgColor(RGBAToHexA(currentBgColor));
+	}, [currentBgColor]);
+
+	const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const newColor = e.target.value;
+		setLocalBgColor(newColor);
 		try {
-			chrome.runtime.sendMessage({ action: "setColorOnClass", text: friClassName, newColor: e.target.value });
+			await chrome.runtime.sendMessage({
+				action: "setColorOnClass",
+				friTargetClassName: friClassName,
+				newHexColor: newColor,
+			});
 		} catch (error) {
-			console.error(error);
+			console.error("Error setting color on class:", JSON.stringify(error));
+		}
+	};
+
+	function RGBAToHexA(rgba: string, forceRemoveAlpha = true) {
+		if (Array.from(rgba)[0] === "#") {
+			return rgba;
+		} else {
+			return (
+				"#" +
+				rgba
+					.replace(/^rgba?\(|\s+|\)$/g, "") // Get's rgba / rgb string values
+					.split(",") // splits them at ","
+					.filter((string, index) => !forceRemoveAlpha || index !== 3)
+					.map((string) => parseFloat(string)) // Converts them to numbers
+					.map((number, index) => (index === 3 ? Math.round(number * 255) : number)) // Converts alpha to 255 number
+					.map((number) => number.toString(16)) // Converts numbers to hex
+					.map((string) => (string.length === 1 ? "0" + string : string)) // Adds 0 when length of one number is 1
+					.join("")
+			);
 		}
 	}
 
 	return (
-		<div className="w-full  flex justify-between">
+		<div className="w-full flex justify-between">
 			<label htmlFor={uniqueId}>{friClassName}</label>
-			<input type="color" name={uniqueId} id={uniqueId} value={localBgColor} onChange={(e) => changeColor(e)} />
+			<input
+				type="color"
+				name={uniqueId}
+				id={uniqueId}
+				value={RGBAToHexA(localBgColor)}
+				onChange={handleChange}
+			/>
 		</div>
 	);
 }

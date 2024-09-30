@@ -17,11 +17,9 @@ export default function ToggleOnOffButton() {
 			// pošlji message background scriptu
 			chrome.runtime.sendMessage({ action: "toggle", isEnabled: nextState }, () => {
 				if (chrome.runtime.lastError) {
-					console.error("Error sending message:", chrome.runtime.lastError);
-					return;
+					console.error("Error sending message:", JSON.stringify(chrome.runtime.lastError));
 				}
 			});
-
 		});
 	};
 	return (
