@@ -1,7 +1,7 @@
 // -> app.tsx
 import { useEffect, useState } from "react";
 import FriClassesList from "./FriClassesList";
-import ToggleOnOffButton from "./ToggleOnOffButton";
+import OnOffToggle from "./OnOffToggle";
 
 const FRIurnikURL = "https://urnik.fri.uni-lj.si/";
 
@@ -34,7 +34,7 @@ export default function App() {
 		<>
 			{isCorrectSite ? (
 				<main className="min-h-fit min-w-fit p-5">
-					<ToggleOnOffButton isCorrectSite={isCorrectSite} />
+					<OnOffToggle isCorrectSite={isCorrectSite} />
 					<FriClassesList isCorrectSite={isCorrectSite} />
 				</main>
 			) : (
