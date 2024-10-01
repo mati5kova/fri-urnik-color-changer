@@ -4,6 +4,7 @@ import FriClassesList from "./FriClassesList";
 import OnOffToggle from "./OnOffToggle";
 
 const FRIurnikURL = "https://urnik.fri.uni-lj.si/";
+const requiredSubstring = "allocations";
 
 export default function App() {
 	const [isCorrectSite, setIsCorrectSite] = useState(false);
@@ -13,7 +14,7 @@ export default function App() {
 		const checkCurrentTabUrl = () => {
 			chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
 				const activeTab = tabs[0];
-				if (activeTab && activeTab.url?.startsWith(FRIurnikURL)) {
+				if (activeTab && activeTab.url?.startsWith(FRIurnikURL) && activeTab.url.includes(requiredSubstring)) {
 					// si na pravi strani
 					setIsCorrectSite(true);
 				} else {
@@ -39,7 +40,7 @@ export default function App() {
 				</main>
 			) : (
 				<div className="min-w-fit whitespace-nowrap p-2">
-					Extension can only be used on{" "}
+					Extension can only be used on some subsites of{" "}
 					<a href={FRIurnikURL} target="_blank" className="text-blue-400 underline">
 						{FRIurnikURL}
 					</a>

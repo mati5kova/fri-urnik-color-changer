@@ -6,54 +6,64 @@ export interface listOfTargetClassesAndPropertiesInterface {
 interface DefaultColors {
 	[key: string]: string;
 }
+const urnikURL = "https://urnik.fri.uni-lj.si/";
+const requiredSubstring = "allocations";
 
-function sendClassesToBackground() {
-	// queryjamo da dobimo starša (ima barvo ozadja) in N*pra vnuka (ima ime predmeta)
-	// lahko na tak način ker itak vedno nastopata skupaj in oba
-	const targets = document.querySelectorAll<HTMLElement>("div.grid-entry, a.link-subject");
+(function () {
+	if (!window.location.href.startsWith(urnikURL) || !window.location.href.includes(requiredSubstring)) {
+		console.log("Extension only works on the correct site and with 'allocations' in the URL.");
+		// Exit the script if conditions are not met
+		return;
+	}
 
-	const listOfTargetClassesAndProperties: listOfTargetClassesAndPropertiesInterface[] = [];
-	for (let i = 0; i < targets.length; i += 2) {
-		listOfTargetClassesAndProperties.push({
-			currentBgColor: targets[i].style.backgroundColor,
-			friClassName: targets[i + 1].textContent?.trim() || "",
+	function sendClassesToBackground() {
+		// queryjamo da dobimo starša (ima barvo ozadja) in N*pra vnuka (ima ime predmeta)
+		// lahko na tak način ker itak vedno nastopata skupaj in oba
+		const targets = document.querySelectorAll<HTMLElement>("div.grid-entry, a.link-subject");
+
+		const listOfTargetClassesAndProperties: listOfTargetClassesAndPropertiesInterface[] = [];
+		for (let i = 0; i < targets.length; i += 2) {
+			listOfTargetClassesAndProperties.push({
+				currentBgColor: targets[i].style.backgroundColor,
+				friClassName: targets[i + 1].textContent?.trim() || "",
+			});
+		}
+
+		chrome.storage.local.get<DefaultColors>("defaultColors", (result) => {
+			// če še niso shranjeni originali v storage
+			if (!result.defaultColors || Object.keys(result.defaultColors).length === 0) {
+				const defaultColors = listOfTargetClassesAndProperties.reduce((acc, item) => {
+					acc[item.friClassName] = item.currentBgColor;
+					return acc;
+				}, {} as DefaultColors);
+
+				chrome.storage.local.set({ defaultColors });
+			}
+		});
+
+		chrome.runtime.sendMessage({
+			action: "sendListOfClassesAndProperties",
+			listOfClasses: listOfTargetClassesAndProperties,
 		});
 	}
 
-	chrome.storage.local.get<DefaultColors>("defaultColors", (result) => {
-		// če še niso shranjeni originali v storage
-		if (!result.defaultColors || Object.keys(result.defaultColors).length === 0) {
-			const defaultColors = listOfTargetClassesAndProperties.reduce((acc, item) => {
-				acc[item.friClassName] = item.currentBgColor;
-				return acc;
-			}, {} as DefaultColors);
+	// začetni send do background.ts
+	sendClassesToBackground();
 
-			chrome.storage.local.set({ defaultColors });
+	// posluša DOM za morebitne spremembe
+	const observer = new MutationObserver((mutations) => {
+		let shouldResend = false;
+		for (const mutation of mutations) {
+			if (mutation.type === "childList" || mutation.type === "attributes") {
+				shouldResend = true;
+				break;
+			}
+		}
+		if (shouldResend) {
+			sendClassesToBackground();
 		}
 	});
 
-	chrome.runtime.sendMessage({
-		action: "sendListOfClassesAndProperties",
-		listOfClasses: listOfTargetClassesAndProperties,
-	});
-}
-
-// začetni send do background.ts
-sendClassesToBackground();
-
-// posluša DOM za morebitne spremembe
-const observer = new MutationObserver((mutations) => {
-	let shouldResend = false;
-	for (const mutation of mutations) {
-		if (mutation.type === "childList" || mutation.type === "attributes") {
-			shouldResend = true;
-			break;
-		}
-	}
-	if (shouldResend) {
-		sendClassesToBackground();
-	}
-});
-
-// začetek observa
-observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+	// začetek observa
+	observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+})();
