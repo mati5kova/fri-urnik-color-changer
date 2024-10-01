@@ -3,6 +3,8 @@ const LIST_STORAGE_KEY = "listOfClassesAndProperties";
 
 // inicializacija badga in storaga
 chrome.runtime.onInstalled.addListener(() => {
+	// friClassColor ima v sebi spremembe npr. {F_AV: '#10100f', F_P: '#8c8c26'}
+	// [LIST_STORAGE_KEY] je list arrayov strukture {currentBgColor: 'rgba(16, 16, 15, 0.7)', friClassName: 'F_AV'} pride iz content.ts
 	chrome.storage.local.set({ isEnabled: false, friClassColors: {}, [LIST_STORAGE_KEY]: [] }, () => {
 		chrome.action.setBadgeText({ text: "OFF" });
 	});
