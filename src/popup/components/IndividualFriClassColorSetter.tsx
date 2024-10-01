@@ -1,5 +1,5 @@
 // IndividualFriClassColorSetter.tsx
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { listOfTargetClassesAndPropertiesInterface } from "../../content/content";
 
 export default function IndividualFriClassColorSetter({
@@ -7,11 +7,6 @@ export default function IndividualFriClassColorSetter({
 	friClassName,
 }: listOfTargetClassesAndPropertiesInterface) {
 	const [localBgColor, setLocalBgColor] = useState<string>(currentBgColor);
-	const uniqueId = useId();
-
-	useEffect(() => {
-		console.log(currentBgColor, localBgColor, RGBAToHexA(currentBgColor), RGBAToHexA(localBgColor));
-	}, []);
 
 	useEffect(() => {
 		setLocalBgColor(RGBAToHexA(currentBgColor));
@@ -21,20 +16,29 @@ export default function IndividualFriClassColorSetter({
 		const newColor = e.target.value;
 		setLocalBgColor(newColor);
 		try {
-			await chrome.runtime.sendMessage({
+			const response = await chrome.runtime.sendMessage({
 				action: "setColorOnClass",
 				friTargetClassName: friClassName,
 				newHexColor: newColor,
 			});
+
+			if (!response.success) {
+				console.log(
+					`IndividualFriClassColorSetter.tsx: Failed to set color for ${friClassName}: ${response?.error}`
+				);
+			}
 		} catch (error) {
-			console.error("Error setting color on class:", JSON.stringify(error));
+			console.log("IndividualFriClassColorSetter.tsx: Error setting color on class:", error);
 		}
 	};
 
 	function RGBAToHexA(rgba: string, forceRemoveAlpha = true) {
 		if (Array.from(rgba)[0] === "#") {
+			// vrne og "rgba" string če je v resnici hex
+			// zaradi nekega čudnega obnašanja/nekonsistentnosti (beri: shit koda) med storagom in kako je treba dat value za input[type="color" v hex obliki]
 			return rgba;
 		} else {
+			// https://stackoverflow.com/questions/49974145/how-to-convert-rgba-to-hex-color-code-using-javascript
 			return (
 				"#" +
 				rgba
@@ -51,14 +55,16 @@ export default function IndividualFriClassColorSetter({
 	}
 
 	return (
-		<div className="w-full flex justify-between">
-			<label htmlFor={uniqueId}>{friClassName}</label>
+		/* https://stackoverflow.com/questions/48464444/how-to-display-3-items-per-row-in-flexbox */
+		<div className="w-72 min-w-fit p-1 flex-grow-0 flex-shrink-0 basis-1/2 flex justify-between">
+			<label htmlFor={friClassName}>{friClassName}</label>
 			<input
 				type="color"
-				name={uniqueId}
-				id={uniqueId}
-				value={RGBAToHexA(localBgColor)}
+				name={friClassName}
+				id={friClassName}
+				value={localBgColor}
 				onChange={handleChange}
+				className="ml-px"
 			/>
 		</div>
 	);

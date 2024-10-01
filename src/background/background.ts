@@ -1,11 +1,9 @@
-//background.ts
-import { listOfTargetClassesAndPropertiesInterface } from "../content/content";
 const urnikURL = "https://urnik.fri.uni-lj.si/";
-let listOfClassesAndProperties: listOfTargetClassesAndPropertiesInterface[] = [];
+const LIST_STORAGE_KEY = "listOfClassesAndProperties";
 
 // inicializacija badga in storaga
 chrome.runtime.onInstalled.addListener(() => {
-	chrome.storage.local.set({ isEnabled: false, friClassColors: {} }, () => {
+	chrome.storage.local.set({ isEnabled: false, friClassColors: {}, [LIST_STORAGE_KEY]: [] }, () => {
 		chrome.action.setBadgeText({ text: "OFF" });
 	});
 });
@@ -29,8 +27,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				const updatePromises = tabs.map(async (tab) => {
 					if (tab.id && typeof tab.url === "string") {
 						await updateBadge(tab.id, newState);
-						if (newState) {
-							// If enabling, apply all stored colors
+						if (newState === true) {
+							// če se extension "vklopi" ->
 							chrome.storage.local.get({ friClassColors: {} }, async (result) => {
 								const friClassColors = result.friClassColors as { [lectureName: string]: string };
 								await applyStoredColorsToTab(tab.id!, friClassColors);
@@ -44,17 +42,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 						sendResponse({ success: true });
 					})
 					.catch((error) => {
-						console.error("Error updating badges and applying colors:", JSON.stringify(error));
+						console.log("background.ts: Error updating badges and applying colors:", JSON.stringify(error));
 						sendResponse({ success: false, error: error.message });
 					});
 			});
 		});
-		// Return true to indicate that the response is asynchronous
+		// vrne true da nakaže asinhron odgovor
 		return true;
 	} else if (request.action === "sendListOfClassesAndProperties") {
-		listOfClassesAndProperties = request.listOfClasses;
+		const listOfClasses = request.listOfClasses;
+		chrome.storage.local.set({ [LIST_STORAGE_KEY]: listOfClasses }, () => {
+			console.log("background.ts: List of classes and properties saved to storage.");
+		});
 	} else if (request.action === "getListOfClassesAndProperties") {
-		sendResponse({ listOfClassesAndProperties: listOfClassesAndProperties });
+		chrome.storage.local.get({ [LIST_STORAGE_KEY]: [] }, (result) => {
+			sendResponse({ listOfClassesAndProperties: result[LIST_STORAGE_KEY] });
+		});
+		return true;
 	} else if (request.action === "setColorOnClass") {
 		const { friTargetClassName, newHexColor } = request;
 
@@ -81,23 +85,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 							sendResponse({ success: true });
 						})
 						.catch((error) => {
-							console.error(`Failed to apply colors: ${JSON.stringify(error)}`);
+							console.log(`background.ts: Failed to apply colors: ${JSON.stringify(error)}`);
 							sendResponse({ success: false, error: "Failed to set colors" });
 						});
 				});
 			});
 		});
-		// Return true to indicate that the response is asynchronous
 		return true;
 	}
-	// Handle other actions if necessary
+	// nadaljuj z ostalimi...
 });
 
 // inicializacija badga glede na storage state ko se browser štarta
 chrome.runtime.onStartup.addListener(async () => {
-	chrome.storage.local.get({ isEnabled: false, friClassColors: {} }, async (result) => {
+	chrome.storage.local.get({ isEnabled: false, friClassColors: {}, [LIST_STORAGE_KEY]: [] }, async (result) => {
 		const isEnabled = result.isEnabled;
-		// Query all tabs that match the urnikURL
+		// query za vse tab-e
 		const tabs = await chrome.tabs.query({ url: `${urnikURL}*` });
 		const applyColorPromises = tabs.map(async (tab) => {
 			if (tab.id && typeof tab.url === "string") {
@@ -116,23 +119,27 @@ chrome.runtime.onStartup.addListener(async () => {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 	if (changeInfo.status === "complete" && tab.url && tab.url.startsWith(urnikURL)) {
 		try {
-			const result = await chrome.storage.local.get({ isEnabled: false, friClassColors: {} });
+			const result = await chrome.storage.local.get({
+				isEnabled: false,
+				friClassColors: {},
+				[LIST_STORAGE_KEY]: [],
+			});
 			const isEnabled = result.isEnabled;
 			await updateBadge(tabId, isEnabled);
 
-			if (isEnabled) {
-				// Apply stored colors only if the extension is enabled
-				const friClassColors = result.friClassColors as { [key: string]: string };
+			if (isEnabled === true) {
+				// applyja barve iz storaga če je vključen
+				const friClassColors = result.friClassColors as { [lectureName: string]: string };
 				await applyStoredColorsToTab(tabId, friClassColors);
 			}
 		} catch (error) {
-			console.error("Error handling tab update:", JSON.stringify(error));
+			console.log("background.ts: Error handling tab update:", JSON.stringify(error));
 		}
 	}
 });
 
 // helper funkcije
-
+// funkcija za "pobarvat" predmet na urniku
 function applyColorToFriClass(friClassName: string, rgbaColor: string) {
 	const elements = document.querySelectorAll<HTMLElement>("a.link-subject");
 	elements.forEach((element) => {
@@ -145,7 +152,7 @@ function applyColorToFriClass(friClassName: string, rgbaColor: string) {
 	});
 }
 
-// Function to apply all stored colors to a specific tab
+// funkcija za apply-at vse shranjene barve
 async function applyStoredColorsToTab(tabId: number, friClassColors: { [key: string]: string }) {
 	const applyColorPromises = Object.entries(friClassColors).map(([lectureName, color]) => {
 		const transformedColorToRgba = hexToRgba(color);
@@ -159,6 +166,10 @@ async function applyStoredColorsToTab(tabId: number, friClassColors: { [key: str
 	return Promise.all(applyColorPromises);
 }
 
+// to je alpha vrednosti ki je prisotna na vseh barvah v originalu na strani in se zgubi s pretvorbami rgba v hex
+const injectedAlphaValue: number = 0.7;
+// funkcija za pretvorbo hex v rgba
+// https://stackoverflow.com/questions/21646738/convert-hex-to-rgba
 function hexToRgba(hex: string) {
 	let a: string[] = [];
 	if (/^#([A-Fa-f0-9]{3}){1,2}$/.test(hex)) {
@@ -167,7 +178,7 @@ function hexToRgba(hex: string) {
 			a = [a[0], a[0], a[1], a[1], a[2], a[2]];
 		}
 		const b: number = Number("0x" + a.join(""));
-		return "rgba(" + [(b >> 16) & 255, (b >> 8) & 255, b & 255].join(",") + ", 0.7)";
+		return "rgba(" + [(b >> 16) & 255, (b >> 8) & 255, b & 255].join(",") + `, ${injectedAlphaValue})`;
 	}
 	return "rgba(255, 255, 255, 1)";
 }
