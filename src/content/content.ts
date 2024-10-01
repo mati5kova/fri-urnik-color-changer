@@ -3,6 +3,9 @@ export interface listOfTargetClassesAndPropertiesInterface {
 	currentBgColor: string;
 	friClassName: string;
 }
+interface DefaultColors {
+	[key: string]: string;
+}
 
 function sendClassesToBackground() {
 	// queryjamo da dobimo starša (ima barvo ozadja) in N*pra vnuka (ima ime predmeta)
@@ -16,6 +19,18 @@ function sendClassesToBackground() {
 			friClassName: targets[i + 1].textContent?.trim() || "",
 		});
 	}
+
+	chrome.storage.local.get<DefaultColors>("defaultColors", (result) => {
+		// če še niso shranjeni originali v storage
+		if (!result.defaultColors || Object.keys(result.defaultColors).length === 0) {
+			const defaultColors = listOfTargetClassesAndProperties.reduce((acc, item) => {
+				acc[item.friClassName] = item.currentBgColor;
+				return acc;
+			}, {} as DefaultColors);
+
+			chrome.storage.local.set({ defaultColors });
+		}
+	});
 
 	chrome.runtime.sendMessage({
 		action: "sendListOfClassesAndProperties",

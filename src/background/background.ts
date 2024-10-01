@@ -3,11 +3,15 @@ const LIST_STORAGE_KEY = "listOfClassesAndProperties";
 
 // inicializacija badga in storaga
 chrome.runtime.onInstalled.addListener(() => {
-	// friClassColor ima v sebi spremembe npr. {F_AV: '#10100f', F_P: '#8c8c26'}
+	// friClassColors ima v sebi spremembe npr. {F_AV: '#10100f', F_P: '#8c8c26'}
 	// [LIST_STORAGE_KEY] je list arrayov strukture {currentBgColor: 'rgba(16, 16, 15, 0.7)', friClassName: 'F_AV'} pride iz content.ts
-	chrome.storage.local.set({ isEnabled: false, friClassColors: {}, [LIST_STORAGE_KEY]: [] }, () => {
-		chrome.action.setBadgeText({ text: "OFF" });
-	});
+	// defaultColors ima shranjene originalne barve od strani; oblika enaka kot friClassColors
+	chrome.storage.local.set(
+		{ isEnabled: false, friClassColors: {}, [LIST_STORAGE_KEY]: [], defaultColors: {} },
+		() => {
+			chrome.action.setBadgeText({ text: "OFF" });
+		}
+	);
 });
 
 // funkcija za updatad badge glede na stanje
@@ -34,6 +38,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 							chrome.storage.local.get({ friClassColors: {} }, async (result) => {
 								const friClassColors = result.friClassColors as { [lectureName: string]: string };
 								await applyStoredColorsToTab(tab.id!, friClassColors);
+							});
+						} else if (newState === false) {
+							// če se extension "izklopi" -> nastavimo defaultne barve od strani
+							chrome.storage.local.get({ defaultColors: {}, friClassColors: {} }, async (result) => {
+								const defaultColors = result.defaultColors || {};
+								await applyStoredColorsToTab(tab.id!, defaultColors);
 							});
 						}
 					}
@@ -64,33 +74,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	} else if (request.action === "setColorOnClass") {
 		const { friTargetClassName, newHexColor } = request;
 
-		chrome.storage.local.get({ friClassColors: {} }, (result) => {
+		chrome.storage.local.get({ friClassColors: {}, isEnabled: false }, (result) => {
 			const friClassColors = result.friClassColors as { [key: string]: string };
+			const isEnabled = result.isEnabled as boolean;
 			friClassColors[friTargetClassName] = newHexColor;
 
 			chrome.storage.local.set({ friClassColors }, () => {
-				chrome.tabs.query({ url: `${urnikURL}*` }, async (tabs) => {
-					const applyColorPromises = tabs.map((tab) => {
-						if (tab.id && typeof tab.url === "string") {
-							const transformedColorToRgba = hexToRgba(newHexColor);
-							return chrome.scripting.executeScript({
-								target: { tabId: tab.id },
-								func: applyColorToFriClass,
-								args: [friTargetClassName, transformedColorToRgba],
-							});
-						}
-						return Promise.resolve();
-					});
-
-					Promise.all(applyColorPromises)
-						.then(() => {
-							sendResponse({ success: true });
-						})
-						.catch((error) => {
-							console.log(`background.ts: Failed to apply colors: ${JSON.stringify(error)}`);
-							sendResponse({ success: false, error: "Failed to set colors" });
+				// check da ne applya barve če ni extension "vključen" ampak samp shrani za kasneje
+				if (isEnabled === true) {
+					chrome.tabs.query({ url: `${urnikURL}*` }, async (tabs) => {
+						const applyColorPromises = tabs.map((tab) => {
+							if (tab.id && typeof tab.url === "string") {
+								const transformedColorToRgba = hexToRgba(newHexColor);
+								return chrome.scripting.executeScript({
+									target: { tabId: tab.id },
+									func: applyColorToFriClass,
+									args: [friTargetClassName, transformedColorToRgba],
+								});
+							}
+							return Promise.resolve();
 						});
-				});
+
+						Promise.all(applyColorPromises)
+							.then(() => {
+								sendResponse({ success: true });
+							})
+							.catch((error) => {
+								console.log(`background.ts: Failed to apply colors: ${JSON.stringify(error)}`);
+								sendResponse({ success: false, error: "Failed to set colors" });
+							});
+					});
+				}
 			});
 		});
 		return true;
@@ -107,9 +121,15 @@ chrome.runtime.onStartup.addListener(async () => {
 		const applyColorPromises = tabs.map(async (tab) => {
 			if (tab.id && typeof tab.url === "string") {
 				await updateBadge(tab.id, isEnabled);
-				if (isEnabled) {
+				if (isEnabled === true) {
 					const friClassColors = result.friClassColors as { [lectureName: string]: string };
 					await applyStoredColorsToTab(tab.id, friClassColors);
+				} else if (isEnabled === false) {
+					// če se extension "izklopi" -> nastavimo defaultne barve od strani
+					chrome.storage.local.get({ defaultColors: {}, friClassColors: {} }, async (result) => {
+						const defaultColors = result.defaultColors || {};
+						await applyStoredColorsToTab(tab.id!, defaultColors);
+					});
 				}
 			}
 		});
@@ -133,6 +153,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 				// applyja barve iz storaga če je vključen
 				const friClassColors = result.friClassColors as { [lectureName: string]: string };
 				await applyStoredColorsToTab(tabId, friClassColors);
+			} else if (isEnabled === false) {
+				// če se extension "izklopi" -> nastavimo defaultne barve od strani
+				chrome.storage.local.get({ defaultColors: {}, friClassColors: {} }, async (result) => {
+					const defaultColors = result.defaultColors || {};
+					await applyStoredColorsToTab(tab.id!, defaultColors);
+				});
 			}
 		} catch (error) {
 			console.log("background.ts: Error handling tab update:", JSON.stringify(error));
@@ -182,5 +208,6 @@ function hexToRgba(hex: string) {
 		const b: number = Number("0x" + a.join(""));
 		return "rgba(" + [(b >> 16) & 255, (b >> 8) & 255, b & 255].join(",") + `, ${injectedAlphaValue})`;
 	}
-	return "rgba(255, 255, 255, 1)";
+	// v resnici ni hex ampak rgba()
+	return hex;
 }
